@@ -3,6 +3,7 @@ import re
 import tkinter as tk
 from tkinter import filedialog
 from typing import Dict, List, Tuple
+from datetime import datetime
 
 try:
     import matplotlib
@@ -314,6 +315,10 @@ def batch_generate_star_charts(file_path, output_folder, clean_title=True):
     sheet_names = wb.sheetnames
 
     summary_rows = []
+    # 运行时间戳与批次 ID，用于汇总表与图片命名
+    now = datetime.now()
+    gen_time_str = now.strftime("%Y-%m-%d %H:%M:%S")
+    batch_id = now.strftime("%Y%m%d_%H%M%S")
     for sheet_name in sheet_names:
         sheet_result = read_score_sheet(file_path, sheet_name)
         raw_title = sheet_result["title"]
@@ -322,24 +327,49 @@ def batch_generate_star_charts(file_path, output_folder, clean_title=True):
         scores = calculate_dimension_scores(df, space_name=space_name)
 
         safe_name = re.sub(r"[^一-龥A-Za-z0-9._-]+", "_", space_name)
-        image_path = os.path.join(output_folder, f"{safe_name}.png")
+        # 在图片文件名加入时间戳，避免覆盖
+        image_filename = f"{safe_name}_{batch_id}.png"
+        image_path = os.path.join(output_folder, image_filename)
         plot_star_model(space_name, scores, image_path)
         print(f"已生成: {image_path}")
 
         row = {"空间名称": space_name}
         for code, label, _ in DIMENSION_ORDER:
             row[label] = scores.get(code, np.nan)
+        # 添加生成时间与运行批次信息
+        row["生成时间"] = gen_time_str
+        row["运行批次"] = batch_id
         summary_rows.append(row)
 
-    summary_df = pd.DataFrame(summary_rows) 
+    summary_df = pd.DataFrame(summary_rows)
     # 统一列顺序
     ordered_cols = ["空间名称"]
     for code, label, _ in DIMENSION_ORDER:
         ordered_cols.append(label)
-    summary_df = summary_df.reindex(columns=ordered_cols, fill_value=np.nan)
+    # 确保新增列（生成时间、运行批次）存在于汇总中
+    ordered_cols_extended = ordered_cols + ["生成时间", "运行批次"]
+    # 保存或追加到已有的汇总文件（不覆盖旧记录）
     summary_path = os.path.join(output_folder, "星形图维度得分汇总.xlsx")
-    summary_df.to_excel(summary_path, index=False)
-    print(f"已生成汇总表: {summary_path}")
+    if os.path.exists(summary_path):
+        try:
+            existing_df = pd.read_excel(summary_path)
+            combined = pd.concat([existing_df, summary_df], ignore_index=True, sort=False)
+            # 保持常用列顺序，保留其它任何历史列在后
+            final_cols = ordered_cols_extended + [c for c in combined.columns if c not in ordered_cols_extended]
+            combined = combined.reindex(columns=final_cols, fill_value=np.nan)
+            combined.to_excel(summary_path, index=False)
+            print(f"已将本次结果追加到已有汇总表: {summary_path}")
+        except Exception as e:
+            # 回退到覆盖写入（不应发生），并提示用户
+            print(f"警告：追加汇总失败，改为覆盖写入。错误: {e}")
+            summary_df = summary_df.reindex(columns=ordered_cols_extended, fill_value=np.nan)
+            summary_df.to_excel(summary_path, index=False)
+            print(f"已生成汇总表 (覆盖写入): {summary_path}")
+    else:
+        # 新建汇总表
+        summary_df = summary_df.reindex(columns=ordered_cols_extended, fill_value=np.nan)
+        summary_df.to_excel(summary_path, index=False)
+        print(f"已生成新的汇总表: {summary_path}")
 
     return summary_df
 
