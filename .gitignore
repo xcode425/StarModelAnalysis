@@ -1,0 +1,4 @@
+# Python bytecode and Office temporary lock files
+__pycache__/
+*.py[cod]
+~$*
