@@ -39,8 +39,8 @@ DIMENSION_COLORS = ["#98BD51", "#E93682", "#574298", "#F38B29", "#007ABA"]
 # 维度名称与星形外轮廓保持清晰间距，分数统一标在维度名称下方。
 DIMENSION_LABEL_RADIUS_OFFSET = 1.0
 DIMENSION_SCORE_VERTICAL_OFFSET = 0.36
-DIMENSION_LABEL_FONT_SIZE = 10
-DIMENSION_SCORE_FONT_SIZE = 9
+DIMENSION_LABEL_FONT_SIZE = 13
+DIMENSION_SCORE_FONT_SIZE = 12
 
 
 def parse_score(value):
@@ -310,7 +310,7 @@ def plot_star_model(space_name, scores, save_path):
     plt.close(fig)
 
 
-def batch_generate_star_charts(file_path, output_folder, clean_title=True):
+def batch_generate_star_charts(file_path, output_folder, clean_title=True, write_summary=True):
     """批量读取 Excel 中所有工作表，并生成所有空间的星形图与汇总表。"""
     base_dir = os.path.dirname(os.path.abspath(__file__))
     if not os.path.isabs(file_path):
@@ -355,6 +355,9 @@ def batch_generate_star_charts(file_path, output_folder, clean_title=True):
         summary_rows.append(row)
 
     summary_df = pd.DataFrame(summary_rows)
+    if not write_summary:
+        return summary_df
+
     # 统一列顺序
     ordered_cols = ["空间名称"]
     for code, label, _ in DIMENSION_ORDER:
@@ -388,7 +391,21 @@ def batch_generate_star_charts(file_path, output_folder, clean_title=True):
 
 
 def choose_file_and_run():
-    """弹出文件选择窗口，让用户手动选择要读取的 Excel 文件。"""
+    """读取环境变量指定的文件；未指定时弹出文件选择窗口。"""
+    input_file = os.getenv("STAR_MODEL_INPUT_FILE", "").strip()
+    output_folder = os.getenv("STAR_MODEL_OUTPUT_DIR", "").strip()
+    skip_summary = os.getenv("STAR_MODEL_SKIP_SUMMARY", "").strip().lower() in {"1", "true", "yes"}
+
+    if input_file:
+        if not output_folder:
+            output_folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "星形图输出")
+        batch_generate_star_charts(
+            file_path=input_file,
+            output_folder=output_folder,
+            write_summary=not skip_summary,
+        )
+        return
+
     root = tk.Tk()
     root.withdraw()
     file_path = filedialog.askopenfilename(
