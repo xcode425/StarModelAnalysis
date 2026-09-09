@@ -33,6 +33,15 @@ DIMENSION_ORDER = [
 
 DIMENSION_COLS = [code for code, _, _ in DIMENSION_ORDER]
 
+# 从 B1 开始顺时针排列，颜色与 Star Model 原模型保持一致。
+DIMENSION_COLORS = ["#98BD51", "#E93682", "#574298", "#F38B29", "#007ABA"]
+
+# 维度名称与星形外轮廓保持清晰间距，分数统一标在维度名称下方。
+DIMENSION_LABEL_RADIUS_OFFSET = 1.0
+DIMENSION_SCORE_VERTICAL_OFFSET = 0.36
+DIMENSION_LABEL_FONT_SIZE = 10
+DIMENSION_SCORE_FONT_SIZE = 9
+
 
 def parse_score(value):
     """将评分字段转换为数值，跳过空值、N/A、NA、不适用等无效项。"""
@@ -130,6 +139,14 @@ def clean_space_title(raw_title, clean=True):
     return title if title else raw_title.strip()
 
 
+def sanitize_filename_component(value):
+    """清理文件系统不允许的字符，同时尽量保留工作表名称原貌。"""
+    name = str(value).strip()
+    name = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', "_", name)
+    name = name.rstrip(". ")
+    return name or "Sheet"
+
+
 def calculate_dimension_scores(df, space_name=""):
     """根据“维度（B）”和“评分”列计算五个维度的平均分。"""
     if df.empty:
@@ -174,7 +191,7 @@ def polar_to_xy(radius, angle):
 
 
 def plot_star_model(space_name, scores, save_path):
-    """绘制标准五角星结构的公共性评价图，每个维度使用独立四边形色块。"""
+    """绘制标准五角星结构的公共性评价图，不在图内显示空间标题。"""
     fig, ax = plt.subplots(figsize=(8, 8), dpi=300)
     fig.patch.set_facecolor("white")
     ax.set_facecolor("white")
@@ -193,7 +210,7 @@ def plot_star_model(space_name, scores, save_path):
         "物理配置与空间开放性（B4）",
         "活动参与与公共活力（B5）",
     ]
-    colors = ["#f1b253", "#e36238", "#7cc6cb", "#49a69c", "#b69dc5"]
+    colors = DIMENSION_COLORS
 
     outer_r = 5.0
     inner_r = outer_r * 0.381966
@@ -246,51 +263,47 @@ def plot_star_model(space_name, scores, save_path):
         quad_points = [center, left_concave, value_point, right_concave]
         quad_x = [p[0] for p in quad_points]
         quad_y = [p[1] for p in quad_points]
-        ax.fill(quad_x, quad_y, color=colors[i], alpha=0.25, zorder=1)
+        ax.fill(quad_x, quad_y, color=colors[i], alpha=1.0, zorder=0)
 
-    # 绘制数据点和数值标签
-    for i, (x, y) in enumerate(data_points):
+    # 绘制数据点；分数不再标在数据点旁。
+    for x, y in data_points:
         ax.scatter(x, y, s=45, color="black", zorder=5)
-        label_x, label_y = x * 1.16, y * 1.16
-        ax.text(label_x, label_y, f"{data_radii[i]:.2f}", ha="center", va="center", fontsize=8, fontweight="bold", color="black")
 
-    # 维度名称标签：根据角度自动偏移，避免与 5.0 数值点重叠
-    for i, (label, angle) in enumerate(zip(axis_labels, angles_outer)):
-        radius = outer_r + 0.8
+    # 维度名称统一放在星形外侧，分数标在名称下方并使用对应维度颜色。
+    for i, (label, angle, color) in enumerate(zip(axis_labels, angles_outer, colors)):
+        radius = outer_r + DIMENSION_LABEL_RADIUS_OFFSET
         x, y = polar_to_xy(radius, angle)
 
-        # 根据角度决定对齐方式，避免标签贴得过近
+        # 根据角度决定水平对齐方式，避免两侧长标签被星形遮挡。
         if 45 <= np.rad2deg(angle) <= 135:
             ha = "center"
-            va = "bottom"
         elif -45 <= np.rad2deg(angle) <= 45:
             ha = "left"
-            va = "center"
         elif -135 <= np.rad2deg(angle) <= -45:
             ha = "right"
-            va = "center"
         else:
             ha = "center"
-            va = "top"
 
-        # 若当前维度数值达到 5.0，则将标签进一步外移
-        if data_radii[i] >= 5.0:
-            x, y = polar_to_xy(outer_r + 1.3, angle)
-
-        ax.text(x, y, label, ha=ha, va=va, fontsize=8, fontweight="bold", color="black")
-
-    # 左上角标题
-    ax.text(
-        -5.55,
-        5.55,
-        space_name,
-        ha="left",
-        va="top",
-        fontsize=12,
-        fontweight="bold",
-        color="white",
-        bbox=dict(boxstyle="square,pad=0.25", facecolor="black", edgecolor="black"),
-    )
+        ax.text(
+            x,
+            y,
+            label,
+            ha=ha,
+            va="center",
+            fontsize=DIMENSION_LABEL_FONT_SIZE,
+            fontweight="bold",
+            color="black",
+        )
+        ax.text(
+            x,
+            y - DIMENSION_SCORE_VERTICAL_OFFSET,
+            f"{data_radii[i]:.2f}",
+            ha=ha,
+            va="top",
+            fontsize=DIMENSION_SCORE_FONT_SIZE,
+            fontweight="bold",
+            color=color,
+        )
 
     plt.tight_layout()
     fig.savefig(save_path, dpi=300, bbox_inches="tight", facecolor="white")
@@ -326,9 +339,9 @@ def batch_generate_star_charts(file_path, output_folder, clean_title=True):
         df = sheet_result["df"]
         scores = calculate_dimension_scores(df, space_name=space_name)
 
-        safe_name = re.sub(r"[^一-龥A-Za-z0-9._-]+", "_", space_name)
-        # 在图片文件名加入时间戳，避免覆盖
-        image_filename = f"{safe_name}_{batch_id}.png"
+        # 图片文件名直接使用工作表名称。
+        safe_sheet_name = sanitize_filename_component(sheet_name)
+        image_filename = f"{safe_sheet_name}.png"
         image_path = os.path.join(output_folder, image_filename)
         plot_star_model(space_name, scores, image_path)
         print(f"已生成: {image_path}")
