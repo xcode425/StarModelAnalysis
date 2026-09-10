@@ -39,8 +39,10 @@ DIMENSION_COLORS = ["#98BD51", "#E93682", "#574298", "#F38B29", "#007ABA"]
 # 维度名称与星形外轮廓保持清晰间距，分数统一标在维度名称下方。
 DIMENSION_LABEL_RADIUS_OFFSET = 1.0
 DIMENSION_SCORE_VERTICAL_OFFSET = 0.36
-DIMENSION_LABEL_FONT_SIZE = 13
-DIMENSION_SCORE_FONT_SIZE = 12
+DIMENSION_LABEL_FONT_SIZE = 15
+DIMENSION_SCORE_FONT_SIZE = 14
+# B5 标签与分数沿维度方向向外移动，避免与星形边框过近。
+B5_LABEL_GROUP_RADIUS_OFFSET = 0.5
 
 
 def parse_score(value):
@@ -270,8 +272,14 @@ def plot_star_model(space_name, scores, save_path):
         ax.scatter(x, y, s=45, color="black", zorder=5)
 
     # 维度名称统一放在星形外侧，分数标在名称下方并使用对应维度颜色。
-    for i, (label, angle, color) in enumerate(zip(axis_labels, angles_outer, colors)):
+    label_artists = {}
+    score_artists = {}
+    for i, ((code, _, _), label, angle, color) in enumerate(
+        zip(DIMENSION_ORDER, axis_labels, angles_outer, colors)
+    ):
         radius = outer_r + DIMENSION_LABEL_RADIUS_OFFSET
+        if code == "B5":
+            radius += B5_LABEL_GROUP_RADIUS_OFFSET
         x, y = polar_to_xy(radius, angle)
 
         # 根据角度决定水平对齐方式，避免两侧长标签被星形遮挡。
@@ -284,7 +292,7 @@ def plot_star_model(space_name, scores, save_path):
         else:
             ha = "center"
 
-        ax.text(
+        label_artists[code] = ax.text(
             x,
             y,
             label,
@@ -294,7 +302,7 @@ def plot_star_model(space_name, scores, save_path):
             fontweight="bold",
             color="black",
         )
-        ax.text(
+        score_artists[code] = ax.text(
             x,
             y - DIMENSION_SCORE_VERTICAL_OFFSET,
             f"{data_radii[i]:.2f}",
@@ -306,6 +314,19 @@ def plot_star_model(space_name, scores, save_path):
         )
 
     plt.tight_layout()
+
+    # B3 标签的左边缘与其分数左边缘对齐，分数位置保持不变。
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    b3_label = label_artists["B3"]
+    b3_score = score_artists["B3"]
+    label_box = b3_label.get_window_extent(renderer)
+    score_box = b3_score.get_window_extent(renderer)
+    shift_pixels = score_box.x0 - label_box.x0
+    label_x, label_y = ax.transData.transform(b3_label.get_position())
+    aligned_x, _ = ax.transData.inverted().transform((label_x + shift_pixels, label_y))
+    b3_label.set_x(aligned_x)
+
     fig.savefig(save_path, dpi=300, bbox_inches="tight", facecolor="white")
     plt.close(fig)
 
