@@ -53,6 +53,9 @@ def parse_score(value):
         s = value.strip()
         if s == "" or s.lower() in {"n/a", "na", "不适用", "none", "null", "—", "-"}:
             return np.nan
+        match = re.fullmatch(r"([+-]?\d+(?:\.\d+)?)\s*(?:分)?", s)
+        if match:
+            return float(match.group(1))
         try:
             return float(s)
         except ValueError:
